@@ -1,3 +1,16 @@
 {
-    "python.analysis.typeCheckingMode": "basic"
+    "python.analysis.typeCheckingMode": "standard",
+    "python.terminal.activateEnvironment": false,
+    "python.analysis.autoImportCompletions": true,
+    "[python]": {
+        "editor.tabSize": 4,
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit",
+            "source.fixAll": "explicit"
+        },
+        "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
 }

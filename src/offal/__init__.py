@@ -1,4 +1,5 @@
-from offal.commands import app
+from offal.main import app
+
 
 def main() -> int:
     app()
