@@ -1,3 +1,5 @@
+from offal.commands import app
+
 def main() -> int:
-    print("Hello from offal!")
+    app()
     return 0
