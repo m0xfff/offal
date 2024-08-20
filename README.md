@@ -8,5 +8,5 @@ Offal is a tool for isolating hard to reproduce bugs. I have been inspired by Ad
 To install Offal, you can use the following command:
 
 ```bash
-pipx install offal
+pipx install git+https://github.com/m0xfff/offal.git
 ```
