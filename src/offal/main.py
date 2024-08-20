@@ -1,4 +1,7 @@
+import hashlib
+import json
 from collections import Counter
+from pathlib import Path
 
 import git
 import typer
@@ -6,21 +9,85 @@ from rich.console import Console
 from rich.table import Table
 from typing_extensions import Annotated
 
+import offal.commands.pin
+from offal.pinned import get_pinned_item
+
 app = typer.Typer()
 console = Console()
+
+APP_NAME = "offal"
+
+
+app.add_typer(offal.commands.pin.app, name="pin")
 
 
 @app.command()
 def status():
+    author = get_pinned_item("author")
+    commit = get_pinned_item("commit")
+    entity = get_pinned_item("entity")
+
+    console.print("Pinned to: ")
+    console.print(f"- Author: {author}")
+    console.print(f"- Commit: {commit}")
+    console.print(f"- Entity: {entity}")
+    console.print("")
+    if any([author, commit, entity]):
+        console.print("You can clear the pinned items using the 'offal pin clear' command.")
+    else:
+        console.print("You can set the pinned items using the 'offal pin' command.")
+
+
+@app.command()
+def config():
+    # app_dir = typer.get_app_dir(APP_NAME)
+    config_path = get_config_path()
+
+    with config_path.open("r") as file:
+        data = json.load(file)
+
+    for key, value in data.items():
+        console.print(f"{key}: {value}")
+
+
+def get_config_path():
+    app_dir = typer.get_app_dir(APP_NAME)
+    config_path = Path(app_dir) / "config.json"
+
+    if not config_path.is_file():
+        config_path.parent.mkdir(exist_ok=True, parents=True)
+        config_path.write_text("{}")
+
+    return config_path
+
+
+def get_project_hash(repo: git.Repo):
+    return hashlib.sha256(str(repo.working_tree_dir).encode()).hexdigest()
+
+
+@app.command()
+def summary():
     repo = git.Repo(search_parent_directories=True)
-    commit_count = str(repo.git.rev_list("--count", "HEAD"))
-    entity_count = str(len(repo.git.ls_files().splitlines()))
-    author_count = str(len(repo.git.shortlog("-s", "-n", "--all", "--no-merges").splitlines()))
+    commit_count = get_commit_count(repo)
+    entity_count = get_entity_count(repo)
+    author_count = get_author_count(repo)
     table = Table("Statistic", "Value")
     table.add_row("Number of Commits", str(commit_count))
     table.add_row("Number of Entities", str(entity_count))
     table.add_row("Number of Authors", str(author_count))
     console.print(table)
+
+
+def get_author_count(repo: git.Repo) -> int:
+    return len(repo.git.shortlog("-s", "-n", "--all", "--no-merges").splitlines())
+
+
+def get_entity_count(repo: git.Repo) -> int:
+    return len(repo.git.ls_files().splitlines())
+
+
+def get_commit_count(repo: git.Repo) -> int:
+    return repo.git.rev_list("--count", "HEAD")
 
 
 @app.command()
