@@ -10,7 +10,9 @@ app = typer.Typer()
 console = Console()
 
 @app.callback(invoke_without_command=True)
-def related():
+def related(
+    limit: int = typer.Option(None, "--limit", "-l", help="Limit the number of related files shown")
+):
     pinned_file = get_pinned_item("file")
 
     if not pinned_file:
@@ -23,11 +25,11 @@ def related():
         file_path, line_number = pinned_file.split("#")
         line_number = int(line_number)
     else:
-        file_path, line_number = pinned_file, None
+        file_path = pinned_file
 
-    show_related_files(repo, file_path, line_number)
+    show_related_files(repo, file_path, limit)
 
-def show_related_files(repo, file_path, line_number=None):
+def show_related_files(repo, file_path, limit=None):
     try:
         commits = list(repo.iter_commits(paths=file_path))
 
@@ -36,64 +38,35 @@ def show_related_files(repo, file_path, line_number=None):
             return
 
         file_changes = Counter()
-        commit_info = []
 
         for commit in commits:
             changed_files = get_changed_files(commit)
             file_changes.update(changed_files)
 
-            try:
-                if line_number is not None:
-                    is_modified = is_line_modified(commit, file_path, line_number)
-                else:
-                    is_modified = "N/A"
-            except Exception:
-                is_modified = "Error"
+        # Remove the pinned file from the counter
+        if file_path in file_changes:
+            del file_changes[file_path]
 
-            commit_info.append({
-                "hash": commit.hexsha[:7],
-                "date": commit.committed_datetime.strftime("%Y-%m-%d %H:%M:%S"),
-                "message": commit.message.strip().split('\n')[0],
-                "files": changed_files,
-                "modified_line": is_modified
-            })
+        # Get the most common files, limited if specified
+        most_common = file_changes.most_common(limit)
 
         # Display summary table
-        summary_table = Table(title="Summary of Related File Changes")
+        summary_table = Table(title=f"Files Modified Together with {file_path}")
         summary_table.add_column("File", style="cyan")
-        summary_table.add_column("Times Modified", justify="right", style="magenta")
+        summary_table.add_column("Times Modified Together", justify="right", style="magenta")
 
-        for file, count in file_changes.most_common():
+        for file, count in most_common:
             summary_table.add_row(file, str(count))
 
         console.print(summary_table)
-        console.print()
 
-        # Display detailed commit information
-        commit_table = Table(title="Detailed Commit Information")
-        commit_table.add_column("Commit", style="yellow")
-        commit_table.add_column("Date", style="green")
-        commit_table.add_column("Message", style="cyan")
-        commit_table.add_column("Files Changed", style="magenta")
-        if line_number is not None:
-            commit_table.add_column("Modified Line", style="red")
-
-        for info in reversed(commit_info):  # Reverse to show oldest first
-            row = [
-                info["hash"],
-                info["date"],
-                info["message"],
-                ", ".join(info["files"])
-            ]
-            if line_number is not None:
-                row.append(str(info["modified_line"]))
-            commit_table.add_row(*row)
-
-        console.print(commit_table)
+        if limit and len(file_changes) > limit:
+            console.print(f"\nShowing top {limit} out of {len(file_changes)} related files.")
 
     except Exception as e:
         console.print(f"An error occurred: {str(e)}")
-        console.print(f"Error details: {type(e).__name__} at line {e.__traceback__.tb_lineno}")
+        if e.__traceback__:
+            console.print(f"Error details: {type(e).__name__} at line {e.__traceback__.tb_lineno}")
 
 def is_line_modified(commit, file_path, target_line_number):
     if not commit.parents:
