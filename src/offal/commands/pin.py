@@ -1,35 +1,26 @@
 import typer
-from typing_extensions import Annotated
+from typing_extensions import Annotated, Optional
 
-from offal.pinned import clear_pinned_items, remove_pinned_item, set_pinned_item
+from offal.pinned import remove_pinned_item, set_pinned_item
 
 app = typer.Typer()
 
-
-@app.command()
-def author(author: Annotated[str, typer.Argument(help="The name of the author")]):
-    set_pinned_item("author", author)
-    typer.echo(f"Author pinned to {author}")
-
-
-@app.command()
-def commit(commit: Annotated[str, typer.Argument(help="The commit hash")]):
-    set_pinned_item("commit", commit)
-    typer.echo(f"Commit pinned to {commit}")
-
-
-@app.command()
-def entity(entity: Annotated[str, typer.Argument(help="The entity to pin")]):
-    set_pinned_item("entity", entity)
-    typer.echo(f"Entity pinned to {entity}")
-
-
-@app.command()
-def clear(pin: Annotated[str, typer.Argument(help="The pinned item to clear")]):
-    remove_pinned_item(pin)
-    typer.echo(f"{pin} pin cleared")
-
-
-@app.command()
-def clear_all():
-    clear_pinned_items()
+@app.callback(invoke_without_command=True)
+def pin(
+    file_path: Annotated[Optional[str], typer.Argument(help="The file path to pin")] = None,
+    line_number: Annotated[Optional[int], typer.Option(help="The line number to pin")] = None,
+    clear: Annotated[bool, typer.Option("--clear", "-c", help="Clear the current file pin")] = False,
+):
+    if clear:
+        remove_pinned_item("file")
+        typer.echo("File pin cleared")
+    elif file_path:
+        if line_number is not None:
+            pin_value = f"{file_path}#{line_number}"
+            set_pinned_item("file", pin_value)
+            typer.echo(f"Pinned to file {file_path} at line {line_number}")
+        else:
+            set_pinned_item("file", file_path)
+            typer.echo(f"Pinned to file {file_path}")
+    else:
+        typer.echo("Please provide a file path to pin or use --clear option")

@@ -23,19 +23,20 @@ app.add_typer(offal.commands.pin.app, name="pin")
 
 @app.command()
 def status():
-    author = get_pinned_item("author")
-    commit = get_pinned_item("commit")
-    entity = get_pinned_item("entity")
+    pinned_file = get_pinned_item("file")
 
-    console.print("Pinned to: ")
-    console.print(f"- Author: {author}")
-    console.print(f"- Commit: {commit}")
-    console.print(f"- Entity: {entity}")
-    console.print("")
-    if any([author, commit, entity]):
-        console.print("You can clear the pinned items using the 'offal pin clear' command.")
+    if pinned_file:
+        console.print("Pinned file:")
+        if "#" in pinned_file:
+            file_path, line_number = pinned_file.split("#")
+            console.print(f"- {file_path} (line {line_number})")
+        else:
+            console.print(f"- {pinned_file}")
+        console.print("")
+        console.print("You can clear the pinned file using the 'offal pin --clear' command.")
     else:
-        console.print("You can set the pinned items using the 'offal pin' command.")
+        console.print("No file is currently pinned.")
+        console.print("You can pin a file using the 'offal pin file' command.")
 
 
 @app.command()
