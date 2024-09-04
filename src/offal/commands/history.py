@@ -1,24 +1,16 @@
 import typer
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from dataclasses import dataclass
 from functools import lru_cache
 from rich.console import Console
 from rich.syntax import Syntax
 import git
-from git import Repo, GitCommandError, InvalidGitRepositoryError, NoSuchPathError
+from git import Repo, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Commit
 from offal.pinned import get_pinned_item
 import re
 
 app = typer.Typer()
 console = Console()
-
-
-@dataclass
-class Commit:
-    hash: str
-    date: str
-    author: str
-    message: str
 
 
 class OffalError(Exception):
@@ -41,35 +33,54 @@ def get_repo():
         raise OffalError("Not a valid git repository.")
 
 
-def parse_log_output(log_output: str) -> List[Commit]:
-    commits = []
-    pattern = r"(\w+)\s+(\d{4}-\d{2}-\d{2})\s+<(.+?)>\s+(.+)$"
-    for line in log_output.splitlines():
-        match = re.match(pattern, line)
-        if match:
-            hash, date, author, message = match.groups()
-            commits.append(Commit(hash=hash[:7], date=date, author=author, message=message))
-        else:
-            console.print(f"Warning: Unable to parse commit line: {line}")
-    return commits
-
-
-def get_file_history(repo: Repo, file_path: str, line_number: Optional[int] = None) -> List[Commit]:
+def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None) -> List[Commit]:
     try:
-        log_format = "%H %ad <%an> %s"  # Use <%an> to wrap the author name
         if line_number:
-            log_output = repo.git.log(
-                L=f"{line_number},{line_number}:{file_path}", format=log_format, date="short", no_patch=True
-            )
-        else:
-            log_output = repo.git.log(file_path, format=log_format, date="short", no_patch=True)
+            commit, lines = repo.blame("HEAD", file_path, L=f"{line_number}, {line_number}")[0]
 
-        commits = parse_log_output(log_output)
-        if not commits:
-            raise NoCommitHistoryError(
-                f"No commit history found for the specified file{' and line' if line_number else ''}."
-            )
-        return commits
+            revisions = []
+
+            line_tracked = True
+            current_line_number = line_number
+            # current_commit: Commit = commit
+            current_commit: Commit = commit
+
+            while True:
+                if not current_commit.parents:
+                    revisions.append(current_commit)
+                    break
+
+                parent_commit = current_commit.parents[0]
+                diffs = current_commit.diff(parent_commit, paths=file_path, create_patch=True)
+
+                line_modified = False
+                for diff in diffs:
+                    if diff.a_path == file_path:
+                        diff_lines = diff.diff.decode("utf-8").splitlines()
+                        line_offset = 0
+                        for line in diff_lines:
+                            if line.startswith("+"):
+                                line_offset += 1
+                            elif line.startswith("-"):
+                                line_offset -= 1
+                                if line_offset + current_line_number == 0:
+                                    line_modified = True
+                            elif not line.startswith("@"):
+                                if line_offset < 0:
+                                    current_line_number += 1
+                                elif line_offset > 0:
+                                    current_line_number -= 1
+
+                if line_modified:
+                    revisions.append(current_commit)
+
+                current_commit = parent_commit
+            else:
+                raise NoCommitHistoryError(f"No commit history found for line {line_number} in file {file_path}")
+        else:
+            revisions = list(repo.iter_commits(paths=file_path))
+
+        return revisions
     except GitCommandError as e:
         if "no such path" in str(e).lower():
             raise FileNotFoundError(f"The file '{file_path}' does not exist in the repository.")
@@ -79,7 +90,12 @@ def get_file_history(repo: Repo, file_path: str, line_number: Optional[int] = No
 def print_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None):
     console.print(f"[bold]Commit History for {file_path}{f' (line {line_number})' if line_number else ''}:[/bold]\n")
     for commit in commits:
-        console.print(f"[yellow]{commit.hash}[/yellow] {commit.date} [green]{commit.author}[/green] {commit.message}")
+        console.print(
+            f"[yellow]{commit.hexsha[:7]}[/yellow] {commit.committed_datetime.strftime('%Y-%m-%d')} [green]{commit.author.name}[/green] {commit.message.strip()}"
+        )
+
+    if line_number and commits:
+        console.print(f"\nLine {line_number} was last modified in commit {commits[0].hexsha[:7]}")
 
 
 @app.callback(invoke_without_command=True)
@@ -98,7 +114,7 @@ def history(
         use_line_number = line_number or (None if ignore_line_number else pinned_line)
 
         repo = get_repo()
-        commits = get_file_history(repo, file_path, use_line_number)
+        commits = get_revisions(repo, file_path, use_line_number)
         print_commits(commits[:limit], file_path, use_line_number)
 
         if len(commits) > limit:
