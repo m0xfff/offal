@@ -34,86 +34,129 @@ def get_repo():
         raise OffalError("Not a valid git repository.")
 
 
-def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None, reverse: bool = False, author: Optional[str] = None, before: Optional[datetime] = None, after: Optional[datetime] = None) -> List[Commit]:
+def get_revisions(
+    repo: Repo,
+    file_path: str,
+    line_number: Optional[int] = None,
+    reverse: bool = False,
+    author: Optional[str] = None,
+    before: Optional[datetime] = None,
+    after: Optional[datetime] = None,
+) -> List[Commit]:
+    if line_number:
+        revisions = get_line_specific_revisions(repo, file_path, line_number)
+    else:
+        revisions = get_file_revisions(repo, file_path)
+
+    revisions = filter_revisions(revisions, author, before, after)
+
+    if reverse:
+        revisions.reverse()
+
+    return revisions
+
+
+def get_line_specific_revisions(repo: Repo, file_path: str, line_number: int) -> List[Commit]:
+    blame_item = get_blame_item(repo, file_path, line_number)
+    commit = extract_commit_from_blame(blame_item)
+    return trace_line_history(repo, file_path, line_number, commit)
+
+
+def get_file_revisions(repo: Repo, file_path: str) -> List[Commit]:
     try:
-        if line_number:
-            blame_result = repo.blame("HEAD", file_path, L=f"{line_number},{line_number}")
-            if not blame_result:
-                raise ValueError(f"No blame information found for line {line_number} in file {file_path}")
-
-            # Extract the first item from blame_result
-            blame_item = next(iter(blame_result), None)
-            if not blame_item:
-                raise ValueError(f"No blame information found for line {line_number} in file {file_path}")
-
-            if isinstance(blame_item, (tuple, list)) and len(blame_item) >= 1:
-                commit = blame_item[0]
-            else:
-                # If it's not a tuple/list, it might be a BlameEntry object
-                commit = getattr(blame_item, 'commit', None)
-
-            if not isinstance(commit, Commit):
-                raise TypeError(f"Expected Commit object, got {type(commit)}")
-
-            revisions = []
-            current_commit: Commit = commit
-
-            while True:
-                if not current_commit.parents:
-                    revisions.append(current_commit)
-                    break
-
-                parent_commit = current_commit.parents[0]
-                diffs = current_commit.diff(parent_commit, paths=file_path, create_patch=True)
-
-                line_modified = False
-                for diff in diffs:
-                    if diff.a_path == file_path:
-                        diff_lines = diff.diff.decode("utf-8").splitlines()
-                        line_offset = 0
-                        for line in diff_lines:
-                            if line.startswith("+"):
-                                line_offset += 1
-                            elif line.startswith("-"):
-                                line_offset -= 1
-                                if line_offset + line_number == 0:
-                                    line_modified = True
-                            elif not line.startswith("@"):
-                                if line_offset < 0:
-                                    line_number += 1
-                                elif line_offset > 0:
-                                    line_number -= 1
-
-                if line_modified:
-                    revisions.append(current_commit)
-
-                current_commit = parent_commit
-            else:
-                raise NoCommitHistoryError(f"No commit history found for line {line_number} in file {file_path}")
-        else:
-            revisions = list(repo.iter_commits(paths=file_path))
-
-        if author:
-            revisions = [
-                commit for commit in revisions
-                if author.lower() in (commit.author.name.lower() if commit.author.name else '') or
-                   author.lower() in (commit.author.email.lower() if commit.author.email else '')
-            ]
-
-        if before or after:
-            revisions = [
-                commit for commit in revisions
-                if (not before or commit.committed_datetime <= before) and
-                   (not after or commit.committed_datetime >= after)
-            ]
-
-        if reverse:
-            revisions.reverse()
-        return revisions
+        return list(repo.iter_commits(paths=file_path))
     except GitCommandError as e:
-        if "no such path" in str(e).lower():
-            raise FileNotFoundError(f"The file '{file_path}' does not exist in the repository.")
-        raise OffalError(f"An error occurred while fetching commit history: {str(e)}")
+        handle_git_error(e, file_path)
+
+
+def filter_revisions(
+    revisions: List[Commit], author: Optional[str], before: Optional[datetime], after: Optional[datetime]
+) -> List[Commit]:
+    if author:
+        revisions = filter_by_author(revisions, author)
+    if before or after:
+        revisions = filter_by_date(revisions, before, after)
+    return revisions
+
+
+def get_blame_item(repo: Repo, file_path: str, line_number: int):
+    blame_result = repo.blame("HEAD", file_path, L=f"{line_number},{line_number}")
+    if not blame_result:
+        raise ValueError(f"No blame information found for line {line_number} in file {file_path}")
+    return next(iter(blame_result))
+
+
+def extract_commit_from_blame(blame_item) -> Commit:
+    if isinstance(blame_item, (tuple, list)) and len(blame_item) >= 1:
+        commit = blame_item[0]
+    else:
+        commit = getattr(blame_item, "commit", None)
+    if not isinstance(commit, Commit):
+        raise TypeError(f"Expected Commit object, got {type(commit)}")
+    return commit
+
+
+def trace_line_history(repo: Repo, file_path: str, line_number: int, initial_commit: Commit) -> List[Commit]:
+    revisions = []
+    current_commit = initial_commit
+    while True:
+        if not current_commit.parents:
+            revisions.append(current_commit)
+            break
+        parent_commit = current_commit.parents[0]
+        if line_modified(repo, file_path, line_number, current_commit, parent_commit):
+            revisions.append(current_commit)
+        current_commit = parent_commit
+    return revisions
+
+
+def line_modified(repo: Repo, file_path: str, line_number: int, commit: Commit, parent_commit: Commit) -> bool:
+    diffs = commit.diff(parent_commit, paths=file_path, create_patch=True)
+    for diff in diffs:
+        if diff.a_path == file_path:
+            return check_line_in_diff(diff, line_number)
+    return False
+
+
+def check_line_in_diff(diff, line_number: int) -> bool:
+    diff_lines = diff.diff.decode("utf-8").splitlines()
+    line_offset = 0
+    for line in diff_lines:
+        if line.startswith("+"):
+            line_offset += 1
+        elif line.startswith("-"):
+            line_offset -= 1
+            if line_offset + line_number == 0:
+                return True
+        elif not line.startswith("@"):
+            if line_offset < 0:
+                line_number += 1
+            elif line_offset > 0:
+                line_number -= 1
+    return False
+
+
+def filter_by_author(revisions: List[Commit], author: str) -> List[Commit]:
+    return [
+        commit
+        for commit in revisions
+        if author.lower() in (commit.author.name.lower() if commit.author.name else "")
+        or author.lower() in (commit.author.email.lower() if commit.author.email else "")
+    ]
+
+
+def filter_by_date(revisions: List[Commit], before: Optional[datetime], after: Optional[datetime]) -> List[Commit]:
+    return [
+        commit
+        for commit in revisions
+        if (not before or commit.committed_datetime <= before) and (not after or commit.committed_datetime >= after)
+    ]
+
+
+def handle_git_error(error: GitCommandError, file_path: str):
+    if "no such path" in str(error).lower():
+        raise FileNotFoundError(f"The file '{file_path}' does not exist in the repository.")
+    raise OffalError(f"An error occurred while fetching commit history: {str(error)}")
 
 
 def print_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None, reverse: bool = False):
