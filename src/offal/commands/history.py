@@ -1,5 +1,5 @@
 import typer
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 from dataclasses import dataclass
 from functools import lru_cache
 from rich.console import Console
@@ -37,12 +37,25 @@ def get_repo():
 def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None, reverse: bool = False, author: Optional[str] = None, before: Optional[datetime] = None, after: Optional[datetime] = None) -> List[Commit]:
     try:
         if line_number:
-            commit, lines = repo.blame("HEAD", file_path, L=f"{line_number}, {line_number}")[0]
+            blame_result = repo.blame("HEAD", file_path, L=f"{line_number},{line_number}")
+            if not blame_result:
+                raise ValueError(f"No blame information found for line {line_number} in file {file_path}")
+
+            # Extract the first item from blame_result
+            blame_item = next(iter(blame_result), None)
+            if not blame_item:
+                raise ValueError(f"No blame information found for line {line_number} in file {file_path}")
+
+            if isinstance(blame_item, (tuple, list)) and len(blame_item) >= 1:
+                commit = blame_item[0]
+            else:
+                # If it's not a tuple/list, it might be a BlameEntry object
+                commit = getattr(blame_item, 'commit', None)
+
+            if not isinstance(commit, Commit):
+                raise TypeError(f"Expected Commit object, got {type(commit)}")
 
             revisions = []
-
-            line_tracked = True
-            current_line_number = line_number
             current_commit: Commit = commit
 
             while True:
@@ -63,13 +76,13 @@ def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None,
                                 line_offset += 1
                             elif line.startswith("-"):
                                 line_offset -= 1
-                                if line_offset + current_line_number == 0:
+                                if line_offset + line_number == 0:
                                     line_modified = True
                             elif not line.startswith("@"):
                                 if line_offset < 0:
-                                    current_line_number += 1
+                                    line_number += 1
                                 elif line_offset > 0:
-                                    current_line_number -= 1
+                                    line_number -= 1
 
                 if line_modified:
                     revisions.append(current_commit)
@@ -81,7 +94,11 @@ def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None,
             revisions = list(repo.iter_commits(paths=file_path))
 
         if author:
-            revisions = [commit for commit in revisions if author.lower() in commit.author.name.lower() or author.lower() in commit.author.email.lower()]
+            revisions = [
+                commit for commit in revisions
+                if author.lower() in (commit.author.name.lower() if commit.author.name else '') or
+                   author.lower() in (commit.author.email.lower() if commit.author.email else '')
+            ]
 
         if before or after:
             revisions = [
