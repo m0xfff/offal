@@ -33,7 +33,7 @@ def get_repo():
         raise OffalError("Not a valid git repository.")
 
 
-def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None) -> List[Commit]:
+def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None, reverse: bool = False) -> List[Commit]:
     try:
         if line_number:
             commit, lines = repo.blame("HEAD", file_path, L=f"{line_number}, {line_number}")[0]
@@ -42,7 +42,6 @@ def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None)
 
             line_tracked = True
             current_line_number = line_number
-            # current_commit: Commit = commit
             current_commit: Commit = commit
 
             while True:
@@ -80,6 +79,8 @@ def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None)
         else:
             revisions = list(repo.iter_commits(paths=file_path))
 
+        if reverse:
+            revisions.reverse()
         return revisions
     except GitCommandError as e:
         if "no such path" in str(e).lower():
@@ -87,7 +88,7 @@ def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None)
         raise OffalError(f"An error occurred while fetching commit history: {str(e)}")
 
 
-def print_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None):
+def print_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None, reverse: bool = False):
     console.print(f"[bold]Commit History for {file_path}{f' (line {line_number})' if line_number else ''}:[/bold]\n")
     for commit in commits:
         console.print(
@@ -95,7 +96,10 @@ def print_commits(commits: List[Commit], file_path: str, line_number: Optional[i
         )
 
     if line_number and commits:
-        console.print(f"\nLine {line_number} was last modified in commit {commits[0].hexsha[:7]}")
+        if reverse:
+            console.print(f"\nLine {line_number} was first introduced in commit {commits[-1].hexsha[:7]}")
+        else:
+            console.print(f"\nLine {line_number} was last modified in commit {commits[0].hexsha[:7]}")
 
 
 @app.callback(invoke_without_command=True)
@@ -107,6 +111,7 @@ def history(
         False, "--ignore-line-number", "-i", help="Ignore the pinned line number and show full file history"
     ),
     limit: int = typer.Option(10, "--limit", "-n", help="Limit the number of commits shown"),
+    reverse: bool = typer.Option(False, "--reverse", "-r", help="List commits from oldest to latest"),
 ):
     """Show commit history for the pinned file or a specified file."""
     try:
@@ -114,8 +119,8 @@ def history(
         use_line_number = line_number or (None if ignore_line_number else pinned_line)
 
         repo = get_repo()
-        commits = get_revisions(repo, file_path, use_line_number)
-        print_commits(commits[:limit], file_path, use_line_number)
+        commits = get_revisions(repo, file_path, use_line_number, reverse)
+        print_commits(commits[:limit], file_path, use_line_number, reverse)
 
         if len(commits) > limit:
             console.print(f"\nShowing {limit} of {len(commits)} commits. Use --limit option to see more.")
