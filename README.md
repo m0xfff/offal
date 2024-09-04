@@ -2,6 +2,8 @@
 
 [![Rye](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/rye/main/artwork/badge.json)](https://rye.astral.sh)
 
+test
+
 *offal* is a powerful command-line tool designed to help developers navigate and analyze their codebase efficiently. Inspired by Adam Tornhill's "Your Code as a Crime Scene", offal provides insights into your repository's history, file changes, and commit patterns, making it easier to isolate hard-to-reproduce bugs and understand code evolution.
 
 > **Note**: offal is currently in the early stages of development. Please report any issues or feature requests on the [GitHub repository](https://github.com/m0xfff/offal).
