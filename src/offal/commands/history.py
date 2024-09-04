@@ -7,6 +7,7 @@ from rich.syntax import Syntax
 import git
 from git import Repo, GitCommandError, InvalidGitRepositoryError, NoSuchPathError
 from offal.pinned import get_pinned_item
+import re
 
 app = typer.Typer()
 console = Console()
@@ -42,39 +43,39 @@ def get_repo():
 
 def parse_log_output(log_output: str) -> List[Commit]:
     commits = []
+    pattern = r"(\w+)\s+(\d{4}-\d{2}-\d{2})\s+<(.+?)>\s+(.+)$"
     for line in log_output.splitlines():
-        parts = line.split(maxsplit=3)
-        if len(parts) == 4:
-            commits.append(Commit(hash=parts[0][:7], date=parts[1], author=parts[2], message=parts[3]))
+        match = re.match(pattern, line)
+        if match:
+            hash, date, author, message = match.groups()
+            commits.append(Commit(hash=hash[:7], date=date, author=author, message=message))
+        else:
+            console.print(f"Warning: Unable to parse commit line: {line}")
     return commits
 
 
 def get_file_history(repo: Repo, file_path: str, line_number: Optional[int] = None) -> List[Commit]:
     try:
+        log_format = '%H %ad <%an> %s'  # Use <%an> to wrap the author name
         if line_number:
-            log_output = repo.git.log(
-                L=f"{line_number},{line_number}:{file_path}", format="%H %ad %an %s", date="short", no_patch=True
-            )
+            log_output = repo.git.log(L=f'{line_number},{line_number}:{file_path}', format=log_format, date='short', no_patch=True)
         else:
-            log_output = repo.git.log(file_path, format="%H %ad %an %s", date="short", no_patch=True)
+            log_output = repo.git.log(file_path, format=log_format, date='short', no_patch=True)
 
         commits = parse_log_output(log_output)
         if not commits:
-            raise NoCommitHistoryError(
-                f"No commit history found for the specified file{' and line' if line_number else ''}."
-            )
+            raise NoCommitHistoryError(f"No commit history found for the specified file{' and line' if line_number else ''}.")
         return commits
     except GitCommandError as e:
         if "no such path" in str(e).lower():
             raise FileNotFoundError(f"The file '{file_path}' does not exist in the repository.")
         raise OffalError(f"An error occurred while fetching commit history: {str(e)}")
 
-
 def print_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None):
     console.print(f"[bold]Commit History for {file_path}{f' (line {line_number})' if line_number else ''}:[/bold]\n")
     for commit in commits:
         console.print(
-            f"[yellow]{commit.hash}[/yellow] - {commit.date} - [green]{commit.author}[/green] - {commit.message}"
+            f"[yellow]{commit.hash}[/yellow] {commit.date} [green]{commit.author}[/green] {commit.message}"
         )
 
 
