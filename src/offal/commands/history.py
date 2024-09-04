@@ -33,7 +33,7 @@ def get_repo():
         raise OffalError("Not a valid git repository.")
 
 
-def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None, reverse: bool = False) -> List[Commit]:
+def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None, reverse: bool = False, author: Optional[str] = None) -> List[Commit]:
     try:
         if line_number:
             commit, lines = repo.blame("HEAD", file_path, L=f"{line_number}, {line_number}")[0]
@@ -79,6 +79,9 @@ def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None,
         else:
             revisions = list(repo.iter_commits(paths=file_path))
 
+        if author:
+            revisions = [commit for commit in revisions if author.lower() in commit.author.name.lower() or author.lower() in commit.author.email.lower()]
+
         if reverse:
             revisions.reverse()
         return revisions
@@ -112,6 +115,7 @@ def history(
     ),
     limit: int = typer.Option(10, "--limit", "-n", help="Limit the number of commits shown"),
     reverse: bool = typer.Option(False, "--reverse", "-r", help="List commits from oldest to latest"),
+    author: Optional[str] = typer.Option(None, "--author", "-a", help="Show commits by a specific author"),
 ):
     """Show commit history for the pinned file or a specified file."""
     try:
@@ -119,7 +123,12 @@ def history(
         use_line_number = line_number or (None if ignore_line_number else pinned_line)
 
         repo = get_repo()
-        commits = get_revisions(repo, file_path, use_line_number, reverse)
+        commits = get_revisions(repo, file_path, use_line_number, reverse, author)
+
+        if author and not commits:
+            console.print(f"No commits found for author: {author}")
+            return
+
         print_commits(commits[:limit], file_path, use_line_number, reverse)
 
         if len(commits) > limit:
