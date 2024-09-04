@@ -56,27 +56,30 @@ def parse_log_output(log_output: str) -> List[Commit]:
 
 def get_file_history(repo: Repo, file_path: str, line_number: Optional[int] = None) -> List[Commit]:
     try:
-        log_format = '%H %ad <%an> %s'  # Use <%an> to wrap the author name
+        log_format = "%H %ad <%an> %s"  # Use <%an> to wrap the author name
         if line_number:
-            log_output = repo.git.log(L=f'{line_number},{line_number}:{file_path}', format=log_format, date='short', no_patch=True)
+            log_output = repo.git.log(
+                L=f"{line_number},{line_number}:{file_path}", format=log_format, date="short", no_patch=True
+            )
         else:
-            log_output = repo.git.log(file_path, format=log_format, date='short', no_patch=True)
+            log_output = repo.git.log(file_path, format=log_format, date="short", no_patch=True)
 
         commits = parse_log_output(log_output)
         if not commits:
-            raise NoCommitHistoryError(f"No commit history found for the specified file{' and line' if line_number else ''}.")
+            raise NoCommitHistoryError(
+                f"No commit history found for the specified file{' and line' if line_number else ''}."
+            )
         return commits
     except GitCommandError as e:
         if "no such path" in str(e).lower():
             raise FileNotFoundError(f"The file '{file_path}' does not exist in the repository.")
         raise OffalError(f"An error occurred while fetching commit history: {str(e)}")
 
+
 def print_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None):
     console.print(f"[bold]Commit History for {file_path}{f' (line {line_number})' if line_number else ''}:[/bold]\n")
     for commit in commits:
-        console.print(
-            f"[yellow]{commit.hash}[/yellow] {commit.date} [green]{commit.author}[/green] {commit.message}"
-        )
+        console.print(f"[yellow]{commit.hash}[/yellow] {commit.date} [green]{commit.author}[/green] {commit.message}")
 
 
 @app.callback(invoke_without_command=True)
