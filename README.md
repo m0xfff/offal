@@ -58,7 +58,7 @@ View commit history for the pinned file or a specified file:
 
 ```bash
 offal history
-offal history path/to/file.py
+offal history --file path/to/file.py
 ```
 
 Options:
@@ -67,8 +67,9 @@ Options:
 - `--author` or `-a`: Show commits by a specific author
 - `--after`: Show revisions after a given date (YYYY-MM-DD)
 - `--before`: Show revisions before a given date (YYYY-MM-DD)
-- `--line-number` or `-L`: Provide a specific line number for revision listing
-- `--ignore-line-number`: Ignore the pinned line number
+- `--file` or `-f`: Provide a specific file for revision listing
+- `--line` or `-L`: Provide a specific line number for revision listing
+- `--ignore-line-number` or `-i`: Ignore the pinned line number
 - `--summary` or `-s`: Show a summary of revisions
 - `--traverse` or `-t`: Traverse each revision in detail
 - `--files-changed`: List all changed files across commits
@@ -85,7 +86,7 @@ Note: `--summary`, `--traverse`, and `--files-changed` are mutually exclusive op
 
 2. View history of a specific file with author filter:
    ```bash
-   offal history path/to/file.py --author "John Doe" --after 2023-01-01
+   offal history --file path/to/file.py --author "John Doe" --after 2023-01-01
    ```
 
 3. Traverse through detailed commit information:

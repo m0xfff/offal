@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 from typing_extensions import Annotated
 
+import offal.commands.history
 import offal.commands.pin
 import offal.commands.related
 from offal.pinned import get_pinned_item
@@ -18,7 +19,7 @@ console = Console()
 
 APP_NAME = "offal"
 
-
+app.add_typer(offal.commands.history.app, name="history", help="Show commit history for the pinned file.")
 app.add_typer(offal.commands.pin.app, name="pin")
 app.add_typer(offal.commands.related.app, name="related")
 
