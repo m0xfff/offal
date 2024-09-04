@@ -8,6 +8,7 @@ import git
 from git import Repo, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Commit
 from offal.pinned import get_pinned_item
 import re
+from datetime import datetime, timezone
 
 app = typer.Typer()
 console = Console()
@@ -33,7 +34,7 @@ def get_repo():
         raise OffalError("Not a valid git repository.")
 
 
-def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None, reverse: bool = False, author: Optional[str] = None) -> List[Commit]:
+def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None, reverse: bool = False, author: Optional[str] = None, before: Optional[datetime] = None, after: Optional[datetime] = None) -> List[Commit]:
     try:
         if line_number:
             commit, lines = repo.blame("HEAD", file_path, L=f"{line_number}, {line_number}")[0]
@@ -82,6 +83,13 @@ def get_revisions(repo: Repo, file_path: str, line_number: Optional[int] = None,
         if author:
             revisions = [commit for commit in revisions if author.lower() in commit.author.name.lower() or author.lower() in commit.author.email.lower()]
 
+        if before or after:
+            revisions = [
+                commit for commit in revisions
+                if (not before or commit.committed_datetime <= before) and
+                   (not after or commit.committed_datetime >= after)
+            ]
+
         if reverse:
             revisions.reverse()
         return revisions
@@ -105,6 +113,13 @@ def print_commits(commits: List[Commit], file_path: str, line_number: Optional[i
             console.print(f"\nLine {line_number} was last modified in commit {commits[0].hexsha[:7]}")
 
 
+def parse_date(date_str: str) -> datetime:
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise typer.BadParameter("Date must be in the format YYYY-MM-DD")
+
+
 @app.callback(invoke_without_command=True)
 def history(
     ctx: typer.Context,
@@ -116,17 +131,38 @@ def history(
     limit: int = typer.Option(10, "--limit", "-n", help="Limit the number of commits shown"),
     reverse: bool = typer.Option(False, "--reverse", "-r", help="List commits from oldest to latest"),
     author: Optional[str] = typer.Option(None, "--author", "-a", help="Show commits by a specific author"),
+    before: Optional[str] = typer.Option(None, "--before", help="Show revisions before a given date (YYYY-MM-DD)"),
+    after: Optional[str] = typer.Option(None, "--after", help="Show revisions after a given date (YYYY-MM-DD)"),
 ):
     """Show commit history for the pinned file or a specified file."""
     try:
         file_path, pinned_line = get_file_info(file_path)
         use_line_number = line_number or (None if ignore_line_number else pinned_line)
 
+        try:
+            before_date = datetime.strptime(before, "%Y-%m-%d").replace(tzinfo=timezone.utc) if before else None
+            after_date = datetime.strptime(after, "%Y-%m-%d").replace(tzinfo=timezone.utc) if after else None
+        except ValueError:
+            console.print("Error: Date must be in the format YYYY-MM-DD")
+            return
+
         repo = get_repo()
-        commits = get_revisions(repo, file_path, use_line_number, reverse, author)
+        commits = get_revisions(repo, file_path, use_line_number, reverse, author, before_date, after_date)
 
         if author and not commits:
             console.print(f"No commits found for author: {author}")
+            return
+
+        if before or after:
+            date_info = []
+            if after:
+                date_info.append(f"after {after}")
+            if before:
+                date_info.append(f"before {before}")
+            console.print(f"Showing commits {' and '.join(date_info)}")
+
+        if not commits:
+            console.print("No commits found matching the specified criteria.")
             return
 
         print_commits(commits[:limit], file_path, use_line_number, reverse)
