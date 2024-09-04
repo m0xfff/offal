@@ -1,5 +1,5 @@
 import typer
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Tuple, Union, NoReturn
 from dataclasses import dataclass
 from functools import lru_cache
 from rich.console import Console
@@ -66,7 +66,9 @@ def get_file_revisions(repo: Repo, file_path: str) -> List[Commit]:
     try:
         return list(repo.iter_commits(paths=file_path))
     except GitCommandError as e:
-        handle_git_error(e, file_path)
+        if "no such path" in str(e).lower():
+            raise FileNotFoundError(f"The file '{file_path}' does not exist in the repository.")
+        raise OffalError(f"An error occurred while fetching commit history: {str(e)}")
 
 
 def filter_revisions(
@@ -151,12 +153,6 @@ def filter_by_date(revisions: List[Commit], before: Optional[datetime], after: O
         for commit in revisions
         if (not before or commit.committed_datetime <= before) and (not after or commit.committed_datetime >= after)
     ]
-
-
-def handle_git_error(error: GitCommandError, file_path: str):
-    if "no such path" in str(error).lower():
-        raise FileNotFoundError(f"The file '{file_path}' does not exist in the repository.")
-    raise OffalError(f"An error occurred while fetching commit history: {str(error)}")
 
 
 def print_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None, reverse: bool = False):
