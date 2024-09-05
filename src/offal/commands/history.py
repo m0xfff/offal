@@ -9,6 +9,7 @@ from git import Repo, GitCommandError, InvalidGitRepositoryError, NoSuchPathErro
 from offal.pinned import get_pinned_item
 import re
 from datetime import datetime, timezone
+import os
 
 app = typer.Typer()
 console = Console()
@@ -55,11 +56,19 @@ def get_revisions(
 
     return revisions
 
+def get_line_specific_revisions(repo: Repo, file_path: str, start_line: int, end_line: Optional[int] = None) -> List[Commit]:
+    try:
+        end_line = end_line or start_line
+        # limit_arg = f'-n {limit}'
 
-def get_line_specific_revisions(repo: Repo, file_path: str, line_number: int) -> List[Commit]:
-    blame_item = get_blame_item(repo, file_path, line_number)
-    commit = extract_commit_from_blame(blame_item)
-    return trace_line_history(repo, file_path, line_number, commit)
+        output = repo.git.log(f'-L {start_line},{end_line}:{file_path}', '--no-patch', '--pretty=format:"%H"')
+        commit_hashes = output.strip().split("\n")
+        hashes = [hash.strip('"') for hash in commit_hashes]
+        return [repo.commit(hash) for hash in hashes]
+    except GitCommandError as e:
+        if "no such path" in str(e).lower():
+            raise FileNotFoundError(f"The file '{file_path}' does not exist in the repository.")
+        raise OffalError(f"An error occurred while fetching commit history: {str(e)}")
 
 
 def get_file_revisions(repo: Repo, file_path: str) -> List[Commit]:
