@@ -324,8 +324,10 @@ def display_commit_details(commit: Commit, file_path: str, line_number: Optional
     # Fetch and display diff
     diff = get_commit_diff(commit, file_path)
     if diff:
+        # Ensure proper panel rendering with fixed size
         syntax = Syntax(diff, "diff", theme="material", background_color="default")
-        console.print(Panel(syntax, title="Diff"))
+        diff_panel = Panel(syntax, title="Diff", border_style="white", expand=True)
+        console.print(diff_panel)
 
     # Fetch and display list of files changed in the commit
     files_changed = get_files_changed(commit)
@@ -338,11 +340,47 @@ def display_commit_details(commit: Commit, file_path: str, line_number: Optional
 
 def get_commit_diff(commit: Commit, file_path: str) -> str:
     try:
-        # Fetch full-file diff. Line-specific diff is complex and not natively supported.
-        diff = commit.repo.git.diff(f'{commit.hexsha}^!', file_path)
-        return diff or 'No diff available'
+        diff_output = commit.repo.git.diff('--unified=0', f'{commit.hexsha}^!', file_path)
+        if not diff_output:
+            return 'No diff available'
+        return add_line_numbers_to_diff(diff_output)
     except GitCommandError as e:
         return f"Error obtaining diff: {str(e)}"
+
+
+def add_line_numbers_to_diff(diff_output: str) -> str:
+    lines = diff_output.split('\n')
+    new_lines = []
+    old_line_number = 0
+    new_line_number = 0
+
+    for line in lines:
+        if line.startswith('@@'):
+            # Extract line number info from the chunk header
+            parts = line.split()
+            if len(parts) > 2:
+                old_line_info = parts[1]
+                new_line_info = parts[2]
+                try:
+                    # Extract starting line numbers
+                    old_line_number = abs(int(old_line_info.split(',')[0].lstrip('-')))
+                    new_line_number = abs(int(new_line_info.split(',')[0].lstrip('+')))
+                except ValueError:
+                    pass
+            new_lines.append(line)
+        elif line.startswith('+'):
+            new_lines.append(f"{new_line_number:5}: {line}")
+            new_line_number += 1
+        elif line.startswith('-'):
+            new_lines.append(f"{old_line_number:5}: {line}")
+            old_line_number += 1
+        else:
+            new_lines.append(line)
+            if line != '\\ No newline at end of file':
+                old_line_number += 1
+                new_line_number += 1
+
+    return '\n'.join(new_lines)
 
 
 def get_files_changed(commit: Commit) -> str:
