@@ -1,18 +1,32 @@
-import typer
-from typing import Optional, List, Tuple, Union, NoReturn
+import sys
+import termios
+import tty
+from datetime import datetime, timezone
+from typing import Optional, List
+import git
+from git import Repo, Commit, GitCommandError, InvalidGitRepositoryError, NoSuchPathError
 from dataclasses import dataclass
 from functools import lru_cache
 from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+from rich.layout import Layout
 from rich.syntax import Syntax
-import git
-from git import Repo, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Commit
+import typer
+
 from offal.pinned import get_pinned_item
-import re
-from datetime import datetime, timezone
-import os
 
 app = typer.Typer()
 console = Console()
+
+
+@dataclass
+class CommitDetails:
+    commit: Commit
+    summary: str
+    author_name: str
+    author_email: str
+    date: datetime
 
 
 class OffalError(Exception):
@@ -201,6 +215,7 @@ def history(
     author: Optional[str] = typer.Option(None, "--author", "-a", help="Show commits by a specific author"),
     before: Optional[str] = typer.Option(None, "--before", help="Show revisions before a given date (YYYY-MM-DD)"),
     after: Optional[str] = typer.Option(None, "--after", help="Show revisions after a given date (YYYY-MM-DD)"),
+    traverse: bool = typer.Option(False, "--traverse", "-t", help="Traverse each revision in detail"),
 ):
     """Show commit history for the pinned file or a specified file."""
     try:
@@ -231,6 +246,10 @@ def history(
 
         if not commits:
             console.print("No commits found matching the specified criteria.")
+            return
+
+        if traverse:
+            traverse_commits(commits, file_path, use_line_number)
             return
 
         print_commits(commits[:limit], file_path, use_line_number, reverse)
@@ -265,3 +284,82 @@ def get_file_info(file_path: Optional[str]) -> tuple[str, Optional[int]]:
             return pinned_item, None
         raise OffalError("Invalid pinned item type")
     return file_path, None
+
+
+def traverse_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None):
+    index = 0
+    while index < len(commits):
+        commit = commits[index]
+        display_commit_details(commit, file_path, line_number)
+        console.print("\nPress [bold yellow]'c'[/bold yellow] to continue, [bold yellow]'b'[/bold yellow] to go back, [bold red]'q'[/bold red] to quit.")
+        user_input = get_user_input()
+
+        if user_input == 'q':
+            break
+        elif user_input == 'c':
+            index += 1
+        elif user_input == 'b' and index > 0:
+            index -= 1
+    console.print("Traversal finished.")
+
+def display_commit_details(commit: Commit, file_path: str, line_number: Optional[int] = None):
+    commit_details = Text()
+    commit_details.append(f"Commit: {commit.hexsha}\n", style="bold blue")
+
+    # Explicitly ensure string conversion
+    author_name = commit.author.name or 'Unknown'
+    author_email = commit.author.email or 'Unknown'
+    commit_message = commit.message
+
+    if isinstance(commit_message, bytes):
+        commit_message = commit_message.decode('utf-8')
+    commit_message = commit_message or ''
+
+    commit_details.append(f"Author: {author_name} <{author_email}>\n", style="bold green")
+    commit_details.append(f"Date: {commit.committed_datetime}\n\n")
+    commit_details.append(commit_message, style="yellow")
+
+    console.print(Panel(commit_details, title="Commit Details"))
+
+    # Fetch and display diff
+    diff = get_commit_diff(commit, file_path)
+    if diff:
+        syntax = Syntax(diff, "diff", theme="material", background_color="default")
+        console.print(Panel(syntax, title="Diff"))
+
+    # Fetch and display list of files changed in the commit
+    files_changed = get_files_changed(commit)
+    if files_changed:
+        files_panel = Panel(Text(files_changed), title="Files Changed")
+        console.print(files_panel)
+
+    console.print("\n")
+
+
+def get_commit_diff(commit: Commit, file_path: str) -> str:
+    try:
+        # Fetch full-file diff. Line-specific diff is complex and not natively supported.
+        diff = commit.repo.git.diff(f'{commit.hexsha}^!', file_path)
+        return diff or 'No diff available'
+    except GitCommandError as e:
+        return f"Error obtaining diff: {str(e)}"
+
+
+def get_files_changed(commit: Commit) -> str:
+    try:
+        # Convert each key to a string
+        file_paths = [str(path) for path in commit.stats.files.keys()]
+        return "\n".join(file_paths)
+    except Exception as e:
+        return f"Error obtaining file list: {str(e)}"
+
+
+def get_user_input():
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
