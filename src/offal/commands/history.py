@@ -70,12 +70,15 @@ def get_revisions(
 
     return revisions
 
-def get_line_specific_revisions(repo: Repo, file_path: str, start_line: int, end_line: Optional[int] = None) -> List[Commit]:
+
+def get_line_specific_revisions(
+    repo: Repo, file_path: str, start_line: int, end_line: Optional[int] = None
+) -> List[Commit]:
     try:
         end_line = end_line or start_line
         # limit_arg = f'-n {limit}'
 
-        output = repo.git.log(f'-L {start_line},{end_line}:{file_path}', '--no-patch', '--pretty=format:"%H"')
+        output = repo.git.log(f"-L {start_line},{end_line}:{file_path}", "--no-patch", '--pretty=format:"%H"')
         commit_hashes = output.strip().split("\n")
         hashes = [hash.strip('"') for hash in commit_hashes]
         return [repo.commit(hash) for hash in hashes]
@@ -291,29 +294,31 @@ def traverse_commits(commits: List[Commit], file_path: str, line_number: Optiona
     while index < len(commits):
         commit = commits[index]
         display_commit_details(commit, file_path, line_number)
-        console.print("\nPress [bold yellow]'c'[/bold yellow] to continue, [bold yellow]'b'[/bold yellow] to go back, [bold red]'q'[/bold red] to quit.")
+        console.print(
+            "\nPress [bold yellow]'c'[/bold yellow] to continue, [bold yellow]'b'[/bold yellow] to go back, [bold red]'q'[/bold red] to quit."
+        )
         user_input = get_user_input()
 
-        if user_input == 'q':
+        if user_input == "q":
             break
-        elif user_input == 'c':
+        elif user_input == "c":
             index += 1
-        elif user_input == 'b' and index > 0:
+        elif user_input == "b" and index > 0:
             index -= 1
     console.print("Traversal finished.")
+
 
 def display_commit_details(commit: Commit, file_path: str, line_number: Optional[int] = None):
     commit_details = Text()
     commit_details.append(f"Commit: {commit.hexsha}\n", style="bold blue")
 
-    # Explicitly ensure string conversion
-    author_name = commit.author.name or 'Unknown'
-    author_email = commit.author.email or 'Unknown'
+    author_name = commit.author.name or "Unknown"
+    author_email = commit.author.email or "Unknown"
     commit_message = commit.message
 
     if isinstance(commit_message, bytes):
-        commit_message = commit_message.decode('utf-8')
-    commit_message = commit_message or ''
+        commit_message = commit_message.decode("utf-8")
+    commit_message = commit_message or ""
 
     commit_details.append(f"Author: {author_name} <{author_email}>\n", style="bold green")
     commit_details.append(f"Date: {commit.committed_datetime}\n\n")
@@ -321,15 +326,12 @@ def display_commit_details(commit: Commit, file_path: str, line_number: Optional
 
     console.print(Panel(commit_details, title="Commit Details"))
 
-    # Fetch and display diff
     diff = get_commit_diff(commit, file_path)
     if diff:
-        # Ensure proper panel rendering with fixed size
         syntax = Syntax(diff, "diff", theme="material", background_color="default")
         diff_panel = Panel(syntax, title="Diff", border_style="white", expand=True)
         console.print(diff_panel)
 
-    # Fetch and display list of files changed in the commit
     files_changed = get_files_changed(commit)
     if files_changed:
         files_panel = Panel(Text(files_changed), title="Files Changed")
@@ -340,47 +342,77 @@ def display_commit_details(commit: Commit, file_path: str, line_number: Optional
 
 def get_commit_diff(commit: Commit, file_path: str) -> str:
     try:
-        diff_output = commit.repo.git.diff('--unified=0', f'{commit.hexsha}^!', file_path)
+        if not commit.parents:
+            # Handle initial commit uniquely
+            file_content = commit.repo.git.show(f"{commit.hexsha}:{file_path}")
+            diff_output = format_initial_commit_diff(file_content, file_path)
+        else:
+            # Generate the diff for subsequent commits
+            diff_output = commit.repo.git.diff("--unified=0", f"{commit.hexsha}^!", file_path)
+
         if not diff_output:
-            return 'No diff available'
+            return "No diff available"
         return add_line_numbers_to_diff(diff_output)
     except GitCommandError as e:
         return f"Error obtaining diff: {str(e)}"
+    except Exception as e:
+        return f"Error processing diff: {str(e)}"
+
+
+def format_initial_commit_diff(file_content: str, file_path: str) -> str:
+    lines = file_content.split("\n")
+    formatted_lines = []
+
+    # Add the diff header for a new file
+    formatted_lines.append(f"diff --git a/{file_path} b/{file_path}")
+    formatted_lines.append("new file mode 100644")
+    formatted_lines.append("index 0000000..c65711b")  # Placeholder index, consider obtaining it dynamically if needed
+    formatted_lines.append("--- /dev/null")
+    formatted_lines.append(f"+++ b/{file_path}")
+
+    line_number = 0  # Start numbering from 0 for the new file context
+    for line in lines:
+        line_prefix = f"{line_number + 1:5}:"
+        formatted_lines.append(f"{line_prefix} +{line}")
+        line_number += 1
+
+    # Optional: Handle the "\ No newline at end of file" explicitly
+    formatted_lines.append(f"{line_number + 1:5}: \\ No newline at end of file")
+
+    return "\n".join(formatted_lines)
 
 
 def add_line_numbers_to_diff(diff_output: str) -> str:
-    lines = diff_output.split('\n')
+    lines = diff_output.split("\n")
     new_lines = []
     old_line_number = 0
     new_line_number = 0
 
     for line in lines:
-        if line.startswith('@@'):
-            # Extract line number info from the chunk header
+        if line.startswith("@@"):
             parts = line.split()
             if len(parts) > 2:
                 old_line_info = parts[1]
                 new_line_info = parts[2]
                 try:
-                    # Extract starting line numbers
-                    old_line_number = abs(int(old_line_info.split(',')[0].lstrip('-')))
-                    new_line_number = abs(int(new_line_info.split(',')[0].lstrip('+')))
+                    old_line_number = abs(int(old_line_info.split(",")[0].lstrip("-")))
+                    new_line_number = abs(int(new_line_info.split(",")[0].lstrip("+")))
                 except ValueError:
                     pass
             new_lines.append(line)
-        elif line.startswith('+'):
+        elif line.startswith("+") and "\\ No newline at end of file" not in line:
             new_lines.append(f"{new_line_number:5}: {line}")
             new_line_number += 1
-        elif line.startswith('-'):
+        elif line.startswith("-") and "\\ No newline at end of file" not in line:
             new_lines.append(f"{old_line_number:5}: {line}")
             old_line_number += 1
         else:
             new_lines.append(line)
-            if line != '\\ No newline at end of file':
+            if line != "\\ No newline at end of file":
                 old_line_number += 1
                 new_line_number += 1
 
-    return '\n'.join(new_lines)
+    return "\n".join(new_lines)
 
 
 def get_files_changed(commit: Commit) -> str:
