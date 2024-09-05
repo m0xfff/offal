@@ -291,22 +291,55 @@ def traverse_commits(commits: List[Commit], file_path: str, line_number: Optiona
     while index < len(commits):
         commit = commits[index]
         display_commit_details(commit, file_path, line_number)
-        console.print("\nPress [bold yellow]'c'[/bold yellow] to continue, [bold yellow]'b'[/bold yellow] to go back, [bold red]'q'[/bold red] to quit.")
-        user_input = get_user_input()
 
-        if user_input == 'q':
-            break
-        elif user_input == 'c':
-            index += 1
-        elif user_input == 'b' and index > 0:
-            index -= 1
+        if index == len(commits) - 1:
+            console.print("\nYou have reached the end of the commit history.")
+
+            # If the current commit has no parents, we can't trace further back
+            if not commit.parents:
+                console.print("This is the initial commit. No further history available.")
+                break
+
+            # Prompt user to enter a new line number to continue tracing
+            console.print("Enter a new line number to continue tracing from (or press Enter to quit): ", style="bold yellow")
+            new_line_number = get_user_input_line()
+            if new_line_number:
+                try:
+                    line_number = int(new_line_number)
+                    new_commits = continue_tracing_from_line(commit.repo, file_path, line_number)
+                    if new_commits:
+                        commits.extend(new_commits)
+                except ValueError:
+                    console.print("Invalid line number entered. Exiting traversal.", style="bold red")
+                    break
+            else:
+                break
+        else:
+            console.print("\nPress [bold yellow]'c'[/bold yellow] to continue, [bold yellow]'b'[/bold yellow] to go back, [bold red]'q'[/bold red] to quit.")
+            user_input = get_user_input()
+
+            if user_input == 'q':
+                break
+            elif user_input == 'c':
+                index += 1
+            elif user_input == 'b' and index > 0:
+                index -= 1
     console.print("Traversal finished.")
+
+def get_user_input_line() -> str:
+    console.print("\nPlease enter a new line number to continue:")
+    return input().strip()
+
+def continue_tracing_from_line(repo: Repo, file_path: str, line_number: int) -> List[Commit]:
+    initial_commit = repo.head.commit
+    blame_item = get_blame_item(repo, file_path, line_number)
+    initial_commit = extract_commit_from_blame(blame_item)
+    return trace_line_history(repo, file_path, line_number, initial_commit)
 
 def display_commit_details(commit: Commit, file_path: str, line_number: Optional[int] = None):
     commit_details = Text()
     commit_details.append(f"Commit: {commit.hexsha}\n", style="bold blue")
 
-    # Explicitly ensure string conversion
     author_name = commit.author.name or 'Unknown'
     author_email = commit.author.email or 'Unknown'
     commit_message = commit.message
@@ -321,13 +354,11 @@ def display_commit_details(commit: Commit, file_path: str, line_number: Optional
 
     console.print(Panel(commit_details, title="Commit Details"))
 
-    # Fetch and display diff
     diff = get_commit_diff(commit, file_path)
     if diff:
-        syntax = Syntax(diff, "diff", theme="material", background_color="default")
+        syntax = Syntax(diff, "diff", theme="material", background_color="default", line_numbers=True)
         console.print(Panel(syntax, title="Diff"))
 
-    # Fetch and display list of files changed in the commit
     files_changed = get_files_changed(commit)
     if files_changed:
         files_panel = Panel(Text(files_changed), title="Files Changed")
