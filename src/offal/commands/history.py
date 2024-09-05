@@ -167,8 +167,11 @@ def filter_by_date(revisions: List[Commit], before: Optional[datetime], after: O
 def print_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None, reverse: bool = False):
     console.print(f"[bold]Commit History for {file_path}{f' (line {line_number})' if line_number else ''}:[/bold]\n")
     for commit in commits:
+        # Get only the first line of the commit message
+        first_line = commit.message.strip().splitlines()[0]
+
         console.print(
-            f"[yellow]{commit.hexsha[:7]}[/yellow] {commit.committed_datetime.strftime('%Y-%m-%d')} [green]{commit.author.name}[/green] {commit.message.strip()}"
+            f"[yellow]{commit.hexsha[:7]}[/yellow] {commit.committed_datetime.strftime('%Y-%m-%d')} [green]{commit.author.name}[/green] {first_line}"
         )
 
     if line_number and commits:
