@@ -359,11 +359,12 @@ def get_commit_diff(commit: Commit, file_path: str) -> str:
             diff_output = format_initial_commit_diff(file_content, file_path)
         else:
             # Generate the diff for subsequent commits
-            diff_output = commit.repo.git.diff("--unified=0", f"{commit.hexsha}^!", file_path)
+            diff_output = commit.repo.git.diff("--unified=0", '--color=always', f"{commit.hexsha}^!", file_path)
 
         if not diff_output:
             return "No diff available"
-        return add_line_numbers_to_diff(diff_output)
+        # return add_line_numbers_to_diff(diff_output)
+        return diff_output
     except GitCommandError as e:
         return f"Error obtaining diff: {str(e)}"
     except Exception as e:
