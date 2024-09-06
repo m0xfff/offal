@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.layout import Layout
 from rich.syntax import Syntax
+from rich.prompt import Prompt
 import typer
 
 from offal.pinned import get_pinned_item
@@ -294,10 +295,8 @@ def traverse_commits(commits: List[Commit], file_path: str, line_number: Optiona
     while index < len(commits):
         commit = commits[index]
         display_commit_details(commit, file_path, line_number)
-        console.print(
-            "\nPress [bold yellow]'c'[/bold yellow] to continue, [bold yellow]'b'[/bold yellow] to go back, [bold red]'q'[/bold red] to quit."
-        )
-        user_input = get_user_input()
+
+        user_input = Prompt.ask("Press 'c' to continue, 'b' to go back, 'q' to quit", default="c", show_default=True)
 
         if user_input == "q":
             break
@@ -305,8 +304,6 @@ def traverse_commits(commits: List[Commit], file_path: str, line_number: Optiona
             index += 1
         elif user_input == "b" and index > 0:
             index -= 1
-    console.print("Traversal finished.")
-
 
 def display_commit_details(commit: Commit, file_path: str, line_number: Optional[int] = None):
     commit_details = Text()
