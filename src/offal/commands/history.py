@@ -343,9 +343,9 @@ def display_commit_details(commit: Commit, file_path: str, line_number: Optional
     #     diff_panel = Panel(syntax, title="Diff", border_style="white", expand=True)
     #     console.print(diff_panel)
 
-    files_changed = get_files_changed(commit)
+    files_changed = get_files_changed(commit, file_path)
     if files_changed:
-        files_panel = Panel(Text(files_changed), title="Files Changed")
+        files_panel = Panel(Text(files_changed), title="Files Changed in This Commit (Ordered by Historical Co-occurrence)")
         console.print(files_panel)
 
     console.print("\n")
@@ -427,11 +427,42 @@ def add_line_numbers_to_diff(diff_output: str) -> str:
     return "\n".join(new_lines)
 
 
-def get_files_changed(commit: Commit) -> str:
+from collections import Counter
+from itertools import islice
+
+def get_files_changed(commit: Commit, target_file: str, limit: int = 10) -> str:
     try:
-        # Convert each key to a string
-        file_paths = [str(path) for path in commit.stats.files.keys()]
-        return "\n".join(file_paths)
+        # Get all commits that modified the target file
+        target_file_commits = set(commit.repo.git.log('--format=%H', target_file).split())
+
+        # Initialize a Counter to keep track of file co-occurrences
+        file_co_occurrences = Counter()
+
+        # Iterate through all commits that modified the target file
+        for commit_hash in target_file_commits:
+            commit_files = commit.repo.commit(commit_hash).stats.files.keys()
+            for file in commit_files:
+                if str(file) != target_file:
+                    file_co_occurrences[str(file)] += 1
+
+        # Get the files changed in the current commit
+        current_commit_files = set(str(file) for file in commit.stats.files.keys())
+
+        # Prepare the output, sorting by co-occurrence count
+        output = []
+        for file in current_commit_files:
+            if file == target_file:
+                output.append((file, float('inf'), "(target file)"))  # Use inf to ensure target file is always first
+            else:
+                co_occurrence_count = file_co_occurrences[file]
+                output.append((file, co_occurrence_count, f"(changed together {co_occurrence_count} times)"))
+
+        # Sort the output list and limit to top 10 (including target file)
+        output.sort(key=lambda x: (-x[1], x[0]))  # Sort by count (descending) then by filename
+        limited_output = list(islice(output, limit))
+
+        # Format the sorted and limited output
+        return "\n".join(f"{file} {note}" for file, _, note in limited_output)
     except Exception as e:
         return f"Error obtaining file list: {str(e)}"
 
