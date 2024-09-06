@@ -293,10 +293,11 @@ def get_file_info(file_path: Optional[str]) -> tuple[str, Optional[int]]:
 def traverse_commits(commits: List[Commit], file_path: str, line_number: Optional[int] = None):
     index = 0
     while index < len(commits):
+        console.clear()
         commit = commits[index]
-        display_commit_details(commit, file_path, line_number)
+        display_commit_details(commit, file_path, line_number, index, len(commits))
 
-        user_input = Prompt.ask("Press 'c' to continue, 'b' to go back, 'q' to quit", default="c", show_default=True)
+        user_input = Prompt.ask("Press 'c' to continue, 'b' to go back, 'd' to show diff, 'q' to quit", default="c", show_default=True)
 
         if user_input == "q":
             break
@@ -304,8 +305,20 @@ def traverse_commits(commits: List[Commit], file_path: str, line_number: Optiona
             index += 1
         elif user_input == "b" and index > 0:
             index -= 1
+        elif user_input == "d":
+            show_diff_in_pager(commit, file_path, line_number)
 
-def display_commit_details(commit: Commit, file_path: str, line_number: Optional[int] = None):
+
+def show_diff_in_pager(commit: Commit, file_path: str, line_number: Optional[int] = None):
+    with console.pager():
+        diff = get_commit_diff(commit, file_path)
+        if diff:
+            syntax = Syntax(diff, "diff", theme="material", background_color="default")
+            # diff_panel = Panel(syntax, title="Diff", border_style="white", expand=True)
+            console.print(syntax)
+
+
+def display_commit_details(commit: Commit, file_path: str, line_number: Optional[int] = None, index: int = 0, total_commits: int = 0):
     commit_details = Text()
     commit_details.append(f"Commit: {commit.hexsha}\n", style="bold blue")
 
@@ -321,13 +334,14 @@ def display_commit_details(commit: Commit, file_path: str, line_number: Optional
     commit_details.append(f"Date: {commit.committed_datetime}\n\n")
     commit_details.append(commit_message, style="yellow")
 
-    console.print(Panel(commit_details, title="Commit Details"))
+    panel_title = f"Commit Details ({index + 1}/{total_commits})"
+    console.print(Panel(commit_details, title=panel_title))
 
-    diff = get_commit_diff(commit, file_path)
-    if diff:
-        syntax = Syntax(diff, "diff", theme="material", background_color="default")
-        diff_panel = Panel(syntax, title="Diff", border_style="white", expand=True)
-        console.print(diff_panel)
+    # diff = get_commit_diff(commit, file_path)
+    # if diff:
+    #     syntax = Syntax(diff, "diff", theme="material", background_color="default")
+    #     diff_panel = Panel(syntax, title="Diff", border_style="white", expand=True)
+    #     console.print(diff_panel)
 
     files_changed = get_files_changed(commit)
     if files_changed:
